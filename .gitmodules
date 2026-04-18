@@ -1,0 +1,6 @@
+[submodule "repos/gospa"]
+	path = repos/gospa
+	url = git@github.com:Gabrielbdd/gospa.git
+[submodule "repos/gofra"]
+	path = repos/gofra
+	url = git@github.com:Gabrielbdd/gofra.git
