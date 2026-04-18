@@ -32,18 +32,38 @@ Responsibilities are split intentionally:
 
 ## Non-negotiable rules
 
+### Hard boundary: this workspace does not bleed into the submodules
+
+`repos/gofra` and `repos/gospa` are **autonomous repositories**. They must
+remain correct and legible when cloned in isolation, with zero knowledge of
+this workspace's existence.
+
+Neither submodule's tracked files may mention:
+
+- this workspace or any "sibling repo" relationship
+- git submodules (as a mechanism they participate in)
+- `go.work` files
+- "parallel development" workflows
+- external orchestration layers of any kind
+
+All cross-repo coordination — decisions that involve both projects,
+instructions for agents about "work here first then there", integration
+sequencing, release ordering between gofra and gospa — belongs **only** in
+this top-level repo. Agents working inside `repos/gofra` or `repos/gospa`
+should receive no context about this workspace; the documentation inside
+each submodule must stand on its own.
+
+### Other rules
+
 1. **`github.com/Gabrielbdd/gofra`** and **`github.com/Gabrielbdd/gospa`** are
-   the real module paths. Anything else (including the old
-   `databit.com.br/gofra`) is legacy and must be migrated, not preserved.
+   the canonical module paths.
 2. The workspace does **not** substitute CI or the release process of either
    repo. All publishing happens inside the respective repos.
 3. `go.work` is committed **only** at this workspace root. Never inside
    `repos/gofra` or `repos/gospa`.
 4. No `go.mod` inside `repos/gofra` or `repos/gospa` may contain `replace ../`.
-   Local multi-repo development uses `go.work`, not committed replaces.
-   (Temporary exception: the scaffold's `go.mod.tmpl` keeps a `replace` that
-   points to the local framework checkout until Gofra cuts its first public
-   release.)
+   Local multi-repo development uses `go.work` at this workspace level, not
+   committed replaces inside the submodules.
 5. `repos/gospa` depends on a **published** version of `github.com/Gabrielbdd/gofra`.
 6. Every public change in Gofra updates the corresponding docs under
    `repos/gofra/docs/framework/` in the same change. That rule is enforced by
