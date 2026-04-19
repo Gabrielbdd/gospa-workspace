@@ -489,6 +489,7 @@ gate fail-closed slice and four unplanned hotfixes have landed.
 | S9  — bearer threading + audience anchored on `api_audience` + `offline_access` | done | gospa `a04cbed` | Companies probe panel exercises end-to-end |
 | Gate fail-closed pre-install                                            | done    | gospa `7ad072c` | private Connect procedures 401 from gate, not handler |
 | S10 — PAT hot-reload via `internal/patwatch`                            | done    | gospa `454679a` | last-known-good; K8s symlink-swap aware |
+| S15 — opportunistic ZITADEL org cleanup on failed install               | done    | gospa `6a9ecae` | best-effort RemoveOrg on post-SetUpOrg failure; cleanup-of-cleanup recorded in install_error |
 
 Hotfixes that landed during execution (not in the original numbered plan):
 
