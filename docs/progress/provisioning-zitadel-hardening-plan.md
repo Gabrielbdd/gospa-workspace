@@ -21,8 +21,12 @@ This is workspace-level because the fix crosses both submodules:
 ## Current State
 
 - Date: 2026-04-19
-- Status: 12 slices delivered (S1–S10 + gate fail-closed + 4 hotfixes); S15
-  is next; S11–S14 + S16–S17 deferred behind a pause for real-usage signal
+- Status: 13 slices delivered (S1–S10 + gate fail-closed + S15 + 4 hotfixes).
+  Install → login → authenticated RPC → PAT rotation → mid-install rollback
+  cycle is closed and validated end-to-end. Next step is **a pause for real
+  usage**; S11–S14 and S16–S17 stay deferred until the system has been
+  exercised with real workload for a few days, so their priorities can be
+  set from observed pain rather than guessed from the plan.
 - Scope: cross-repo hardening plan for provisioning, onboarding, auth, DX, and deploy contract
 
 ## Context Consulted
@@ -134,151 +138,99 @@ The following was exercised directly during investigation:
 - code-level exploration of auth gate, install orchestrator, persisted schema,
   browser auth slice, starter dev contract, and K8s deploy story (2026-04-19)
 
-## Current Findings
+## Findings
 
-### 1. Auth gate eager activation is bugged after restart
+### Resolved findings (kept for the historical why)
 
-`cmd/app/main.go:159-169` calls `gate.Activate(ctx, ws.ZitadelProjectID.String)`
-for established workspaces (`install_state = ready`). But the activation runs
-**before** `app.Use(gate.Middleware)` is invoked at `cmd/app/main.go:187`.
+These were the original gaps that motivated the workstream and the
+mid-execution surprises that changed scope. All have shipped fixes; the
+short notes below capture which slice closed each.
 
-Inside `internal/authgate/gate.go:71-73`, `Activate` reads
-`g.passthrough.Load()` which is only populated when `Middleware` is mounted.
-The load returns `nil`, `Activate` returns `ErrMiddlewareNotMounted`, and the
-caller logs the error at `warn` level (`main.go:165`) and continues.
+1. **Auth gate eager activation bugged after restart** — original Finding 1.
+   Closed by S1 (gospa `fb94f19`) and revisited by the chi-lazy refactor
+   (gospa `98aa638`) once it became clear `app.Use` does not invoke the
+   middleware function eagerly. The gate now stores the verifier; the
+   middleware compiles its authenticated chain on demand, so order between
+   `app.Use(gate.Middleware)` and `gate.Activate(...)` no longer matters.
 
-Result: a restarted ready workspace serves private RPCs unauthenticated.
-The `OnReady` path at `main.go:125-129` is correct (it runs after the wizard
-completes, by which time the middleware is mounted) — only the eager
-post-restart path is broken.
+2. **Browser login was ~20% complete (no callback / token exchange / refresh /
+   logout)** — original Finding 2. Closed by S8 (gospa `e486172`,
+   `react-oidc-context` + `/auth/callback` + sessionStorage) and S9 (gospa
+   `a04cbed`, bearer threading + audience-anchor + `offline_access`).
 
-**Fix is trivial: move the `:159-169` block to after `app.Use(gate.Middleware)`.**
-This is a runtime correctness bug.
+3. **Public runtime auth config was incomplete** — original Finding 3. Closed
+   end-to-end by S5 (gospa `38893b3`, persistence) → S6 (gospa `da16106`,
+   browser issuer) → S7 (gospa `738b142`, gate consumes contract). The
+   browser now reads `client_id`, `issuer`, `org_id`, and the merged scopes
+   from the persisted workspace row; the gate validates against the same
+   `api_audience`.
 
-### 2. Browser login is incomplete end-to-end (~20% complete)
+4. **K8s docs claimed `kubectl rollout restart` was required after install** —
+   original Findings 5 + 7. Closed by S2 (gospa `40f7f6b`, doc-only) and the
+   broader read-repair work in S5/S7.
 
-`web/src/lib/auth.ts` builds an authorize URL with PKCE (state + code verifier
-stashed in `sessionStorage`). That is all.
+5. **Provisioning and steady-state runtime were mixed; PAT rotation required
+   restart** — original Finding 6. Closed by S10 (gospa `454679a`,
+   `internal/patwatch` hot-reload). The bootstrap-vs-runtime PAT split is
+   intentionally deferred (Decision 11).
 
-What is missing:
+6. **`/install` was publicly invokable without any token** — original
+   Finding 8. Closed by S3 (gospa `f881f23`, operator-supplied install token
+   + handler validation + auto-gen fallback for try-it-out).
 
-- no `/auth/callback` route registered in `web/src/routes/`
-- no token exchange handler
-- no token storage / session restore
-- no refresh logic (despite `offline_access` being requested)
-- no logout flow
-- `react-oidc-context` is not in `web/package.json`
+7. **chi `app.Use` is lazy and silently broke eager Activate** — discovered
+   during S1 validation on Pod restart. Closed by the chi-lazy authgate
+   refactor (gospa `98aa638`).
 
-The product claims OIDC login works; the implementation only covers the very
-first redirect step.
+8. **ZITADEL OIDC apps default to opaque access tokens** — discovered when
+   `Companies probe` returned `401 invalid token` post-login. Closed by the
+   JWT hotfix (gospa `4233517`, `accessTokenType: OIDC_TOKEN_TYPE_JWT` on
+   `AddOIDCApp`).
 
-### 3. Public runtime auth config is incomplete
+9. **`SetUpOrg` without `password` triggers ZITADEL email init flow that
+   never arrives without SMTP** — discovered on the first manual e2e on a
+   no-SMTP local setup. Closed by the install password hotfix (gospa
+   `a098bd3`); wizard now collects the admin password.
 
-The install flow persists `zitadel_org_id`, `zitadel_project_id`,
-`zitadel_spa_app_id`, and `zitadel_spa_client_id` (see
-`db/migrations/00001_create_workspace.sql:25-28` and
-`internal/install/orchestrator.go:118-125`). `publicconfig/resolver.go` only
-mutates `auth.orgId` on top of static config. Issuer URL, management URL, API
-audience, and the audience-request scope are all sourced from static config
-(`cfg.Auth.*`, `cfg.Zitadel.AdminAPIURL`), not from the workspace row.
+10. **Pre-install gate passthrough exposed private RPCs to handlers** —
+    raised by the user during e2e ("antes do install não deveria tudo dar
+    401?"). Closed by the gate fail-closed slice (gospa `7ad072c`); the
+    inactive branch now blocks private Connect procedures with a 401 +
+    Connect-shape body before the handler runs. `requireReady` stays as
+    second-layer defense.
 
-### 4. Developer experience contract is incoherent
+11. **Mid-install ZITADEL org leaked when a later step failed** — explicit
+    MVP debt in operations.md. Closed by S15 (gospa `6a9ecae`, opportunistic
+    `RemoveOrg` cleanup with cleanup-failure recorded in `install_error`).
 
-`mise run dev` starts Go and Vite in parallel
-(`repos/gofra/internal/scaffold/starter/full/mise.toml.tmpl:47-62`), but the
-Go binary is not built with `-tags dev`. Without that build tag,
-`web/embed.go` (production embed) is selected at compile time, so the browser
-keeps receiving the embedded `dist` even while Vite is also running on 5173.
+### Remaining risks
 
-The documented "backend + frontend together" loop is not the loop the user is
-exercising in the browser.
+The hardening cycle closed the install → login → RPC → rotation →
+mid-install rollback path. What is left does not block the product from
+being used; it is debt to revisit when real signals show up.
 
-### 5. Docs and runtime disagree about Kubernetes behavior
+1. **Shared PAT keeps IAM_OWNER scope in both bootstrap and runtime paths.**
+   S10 made rotation invisible but did not reduce blast radius. Real
+   reduction requires architecture change (e.g. operator pre-allocates a
+   pool of orgs Gospa only assigns from), not just a credential split.
+   Tracked as Decision 11; out of scope for the current workstream.
 
-`OnReady` at `cmd/app/main.go:125-129` already activates auth in-place via
-`gate.Activate(...)`. `docs/operations.md` (Scenario K1) describes this
-correctly. But `docs/examples/deploy/kubernetes/README.md:51-63` still
-prescribes a manual `kubectl rollout restart deployment/gospa` after install.
+2. **Mid-install kernel-kill crash still leaks the org.** S15 covers
+   in-flow failures (orchestrator's `fail` helper runs cleanup), but
+   SIGKILL / OOM / pod-evict between `SetUpOrg` and the next step bypasses
+   `fail` entirely. The org id is lost with the process. Documented in
+   `docs/operations.md` Scenario E. Real fix needs Restate (or persisting
+   the in-flight org id before the ZITADEL call so a fresh process can see
+   and clean it).
 
-The runtime is correct; the deploy README lies.
+3. **`mise run dev` browser loop still serves embedded `dist`, not the
+   live Vite build** — original Finding 4 unchanged. Will be closed by S12.
+   Not blocking until the dev loop starts hurting day-to-day work.
 
-### 6. Provisioning and steady-state runtime are mixed
-
-Bootstrap PAT (`scripts/copy-provisioner-pat.sh`,
-`scripts/wait-for-zitadel.sh`) is loaded once at startup
-(`cmd/app/main.go:69-74`) and reused for both:
-
-- install-time provisioning (`Orchestrator.Run` → `Zitadel.SetUpOrg`, etc.)
-- steady-state runtime (`companies/handler.go:60` calls `Zitadel.AddOrganization`)
-
-There is no separation between bootstrap credential and runtime credential.
-PAT rotation requires a process restart.
-
-### 7. K8s example contradicts already-implemented in-place activation
-
-(Subset of Finding 5 but called out separately because the fix is doc-only.)
-`docs/examples/deploy/kubernetes/README.md:51-63` instructs operators to
-`kubectl rollout restart` after install. The runtime does not require this.
-Removing that instruction is a single-PR doc fix.
-
-### 8. `/install` is publicly invokable without any token
-
-`proto/gospa/install/v1/install.proto:6-8` declares the install routes as
-"intentionally public". `internal/install/handler.go` enforces no token, no
-HMAC, no shared secret. The only protection is the operator's discipline in
-keeping ingress private until install completes.
-
-This is the most serious security debt today and is not cosmetic.
-
-### 9. chi `app.Use` is lazy — gate cannot rely on mount order
-
-`gate := authgate.New(...)` followed by `app.Use(gate.Middleware)` does
-**not** invoke the middleware function. chi compiles the chain only when the
-first request arrives (or when the router is asked to serve). The original
-`Gate` design stored `passthrough` from inside the middleware function, so
-`Activate()` called at startup raced ahead of any mount and silently failed
-with `ErrMiddlewareNotMounted`.
-
-Discovered while validating the eager activation path on Pod restart.
-Resolved by refactoring `authgate.Middleware` to lazy-cache the
-authenticated chain on demand: `Activate` only stores the verifier, the
-middleware compiles its chain on the next request that flows through. Order
-between `app.Use` and `Activate` is now irrelevant.
-
-### 10. ZITADEL OIDC apps default to **opaque** access tokens
-
-`AddOIDCApp` without `accessTokenType` makes ZITADEL issue
-`OIDC_TOKEN_TYPE_BEARER` (opaque) tokens. The `runtime/auth` verifier is
-JWT-only — it tries to decode the bearer as a JWT and returns
-`401 invalid token` on every authenticated RPC even when the user just
-logged in. Manifests as: Companies probe panel reports
-"Authenticated RPC failed: invalid token" right after a successful login;
-the bearer arrives, the gate just can't decode it.
-
-Resolved by setting `accessTokenType: "OIDC_TOKEN_TYPE_JWT"` on the
-`AddOIDCApp` call.
-
-### 11. `SetUpOrg` without `password` triggers ZITADEL email init flow
-
-If `SetUpOrg`'s human payload omits `password`, ZITADEL marks the user as
-needing an init code and sends it by email. On any deploy without
-configured SMTP — including the local docker-compose setup — that email
-never arrives and the operator is locked out at the consent screen with
-"Verify your e-mail with the code below and set your password."
-
-Resolved by collecting the admin password in the wizard and threading it
-through to `SetUpOrg`.
-
-### 12. Pre-install gate passthrough exposed private RPCs at the handler
-
-The original `Gate.Middleware` inactive branch was full passthrough — any
-private Connect RPC reached its handler pre-install and was barred only by
-per-handler `requireReady` guards. Defense in depth with the first layer
-missing: a private RPC added without that guard would leak.
-
-Resolved by making the gate's inactive branch fail-closed for private
-Connect procedures (anything not in `PublicProcedures`). `requireReady`
-stays as second-layer defense.
+4. **Published deploy story (image build, K8s manifests live in CI)** —
+   no smoke in CI catches obvious regressions in the image or manifest
+   templates. Will be closed by S16 + S17. Not blocking until publishing
+   pain shows up.
 
 ## Architectural Principles
 
@@ -500,11 +452,10 @@ Hotfixes that landed during execution (not in the original numbered plan):
 | chi-lazy mount fix for authgate                  | done | gospa `98aa638` | gate stores verifier, middleware caches chain on demand |
 | Wizard password confirm + ZITADEL `login_hint`   | done | gospa `962c22e` | localStorage; convenience |
 
-Pending slices:
+Pending slices (deferred behind real-usage pause):
 
 | Slice | Repo | Scope | Size |
 |-------|------|-------|------|
-| **S15** | gospa | Crash-recovery: best-effort cleanup of ZITADEL org created mid-install when a later step fails. Compensates only resources from the current execution; logs cleanup failures into `install_error`. Not a saga, not a sweep of historical orphans | M |
 | **S11** | gofra | Rename `infra` → `infra:start` (breaking, no alias); add `infra:status` and `infra:restart`; bump starter major version | S+ |
 | **S12** | gofra | Make `dev` task compile with `-tags dev` (or introduce explicit `dev:proxy` task); enforce strict Vite port | S |
 | **S13** | gofra | Add `doctor` task | S |
@@ -512,12 +463,12 @@ Pending slices:
 | **S16** | gospa | Image build contract + migration execution contract (init container or Job) | M |
 | **S17** | gospa | Live K8s manifests + smoke test in CI; first-deploy + post-install steady-state validation | M |
 
-### Slice ordering rationale (post-S10)
+### Slice ordering rationale (post-S15)
 
-- **S15 next.** It is the last gap in confiability of the install path — without it, a mid-install failure leaks ZITADEL orgs forever.
-- **Pause for real usage after S15.** S11–S17 are DX/operational hardening; their priorities are easier to set after the system has been used with real workload for a few days.
-- **S11 → S14** is one logical block (starter rename + Gospa adoption). Schedule together when DX friction starts hurting.
+- **Pause for real usage first.** S11–S17 are DX/operational hardening; their priorities are easier to set after the system has been used with real workload for a few days.
+- **S11 → S14** is one logical block (starter rename + Gospa adoption). Schedule together when DX friction starts hurting day-to-day work on Gospa.
 - **S16 → S17** is the deploy-story block. Schedule when CI/operational pain shows up (e.g., publishing an image without a smoke that catches obvious regressions).
+- The choice between picking up S11–S14 or S16–S17 first should come from real signals, not from the plan order — both blocks are independent of each other.
 
 ## Agent-Oriented Execution Rules
 
@@ -641,9 +592,9 @@ These are the remaining meaningful architectural questions:
    meaningfully (Decision 11).
 3. ~~Crash recovery: orphan ZITADEL org cleanup automatic or doc-only?~~
    **Closed:** best-effort opportunistic cleanup for resources created in
-   the current execution; cleanup failures recorded in `install_error`. The
-   kernel-kill / mid-flow crash case stays operator-cleanup territory.
-   Implementation is **S15** (next slice).
+   the current execution; cleanup failures recorded in `install_error`.
+   Shipped in S15 (gospa `6a9ecae`). The kernel-kill / mid-flow crash case
+   stays operator-cleanup territory until install moves to Restate.
 4. Should install durability eventually move to Restate? Out of scope for this
    workstream but worth tracking. Re-evaluate after a few weeks of real
    usage post-S15.
@@ -659,27 +610,31 @@ end-to-end validations:
 - ~~Restart validation after browser auth is complete~~ **done after S9 +
   chi-lazy fix.** Restart of a `ready` workspace activates the gate via
   persisted contract; `curl` without bearer returns 401.
-- Published/deployed validation against the final Kubernetes contract
-  (pending S17).
 - ~~Implemented ZITADEL token shape confirmed against ADR 0001~~ **done after
   JWT hotfix.** Access tokens are now JWT (verified via `jwt.io` decode of
   `auth.user.access_token`).
-- **New:** S15 e2e validation — induce mid-install ZITADEL failure (e.g.
-  `docker stop zitadel` after the wizard click) and confirm the orchestrator
-  rolled back the created org.
+- ~~S15 e2e validation~~ **partially done via unit tests** (orchestrator +
+  zitadel client cover the cleanup paths). Full induced-failure manual run
+  (`docker stop zitadel` mid-install) still pending operator try.
+- Published/deployed validation against the final Kubernetes contract
+  (pending S17).
 
 ## Next Steps
 
 Recommended immediate execution order:
 
-1. **S15** — orphan ZITADEL org cleanup, best-effort opportunistic (next).
-2. **Pause for real usage** — run Gospa with real workload for a few days
-   before opening more frontend / DX / deploy frontiers. Real usage usually
-   re-prioritises better than the plan does.
-3. **S11 → S14** — gofra starter rename + Gospa adoption. Schedule when DX
-   friction starts hurting.
-4. **S16 → S17** — image build + K8s smoke in CI. Schedule when
-   publish/deploy pain shows up.
+1. **Pause for real usage** — run Gospa with real workload for a few days
+   before opening more frontend / DX / deploy frontiers. Watch for:
+   onboarding friction, ZITADEL surprises during company creation, PAT
+   rotation comfort, restart/rerun predictability, dev loop irritation,
+   deploy/K8s pain. Real usage usually re-prioritises better than the
+   plan does.
+2. **Repick between S11–S14 and S16–S17** based on observed pain:
+   - dev/maintenance pain on the starter contract → S11–S14
+   - operational/CI pain on image build + deploy → S16–S17
+   - both equally → user decides; both are independent.
+3. The remaining block (whichever was not picked) follows whenever its own
+   pain shows up.
 
 ## Assessment
 
