@@ -166,9 +166,14 @@ Stated as a checklist for any change made through this workspace:
       deltas match what was just pushed.
 - [ ] Workspace pushed last.
 
-Never `git push --force` any of these without explicit instruction.
-Never skip this order to "save time" — the failure mode is silent and
-lands on whoever clones next.
+Pushes go directly to `main` in both submodules and in the workspace.
+That is the established convention here — no feature-branch-plus-PR
+dance for routine work. **Never `--force` any of these three pushes.**
+Not on the workspace, not on a submodule, under any circumstance, unless
+the user has explicitly asked for a force-push in that exact sentence.
+
+Never skip the submodule-first order to "save time" — the failure mode
+is silent and lands on whoever clones next.
 
 ## What NOT to do here
 
