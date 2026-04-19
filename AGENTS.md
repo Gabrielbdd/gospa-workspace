@@ -137,6 +137,39 @@ changes, `go.work` at the workspace root makes Go resolve imports directly
 from the local framework checkout — no `replace` in `go.mod` required, and no
 pseudo-version rituals.
 
+## Push order — non-negotiable
+
+A workspace commit that bumps submodule pointers references SHAs. Those
+SHAs must exist on the submodule's remote before the workspace commit is
+pushed, otherwise anyone who pulls the workspace and runs
+`git submodule update` gets a broken pointer.
+
+The order is therefore always the same and is not a choice:
+
+1. Inside each touched submodule: commit, then `git push` to that
+   submodule's remote.
+2. Only after both submodule pushes land: commit the workspace bump (if
+   not already committed) and `git push` the workspace.
+
+If only one submodule changed, push that one and then the workspace. If
+the workspace commit was already created before the submodule commits
+were pushed — which is fine locally — the submodule pushes still go
+first; the workspace push goes last.
+
+Stated as a checklist for any change made through this workspace:
+
+- [ ] Submodule-local commits are green (`go test ./...` in gofra; `mise
+      run test` and `mise run build` in gospa).
+- [ ] Submodule commits pushed to their respective remotes.
+- [ ] Workspace commit that advances the pointers exists locally.
+- [ ] `git diff --submodule=log` at the workspace confirms the pointer
+      deltas match what was just pushed.
+- [ ] Workspace pushed last.
+
+Never `git push --force` any of these without explicit instruction.
+Never skip this order to "save time" — the failure mode is silent and
+lands on whoever clones next.
+
 ## What NOT to do here
 
 - Do not add a `go.mod` to the workspace root. The workspace is not a module.
