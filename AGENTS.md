@@ -72,6 +72,48 @@ each submodule must stand on its own.
    commits that bump submodule SHAs only land after the target repo's own CI
    is green.
 
+## Cross-impact assessment
+
+When you work from this workspace and make a change inside one
+submodule, your plan must declare the impact on the other — even when
+that impact is "none". Stating it explicitly is the point.
+
+- Change inside `repos/gofra` that touches a public contract, a
+  `runtime/` package, the CLI, the starter, DX, or an operational
+  concern → declare what it means for `repos/gospa`: what must change
+  there, what will not change and why, or what was consciously deferred.
+- Change inside `repos/gospa` that reveals a gap generic enough that any
+  Gofra-based app would hit it → the fix belongs upstream in
+  `repos/gofra` first, not worked around in the product. Flag this in
+  the plan before implementing anything inside Gospa.
+- "No impact" is a valid conclusion, but it must be stated — silence is
+  not acceptable.
+
+This assessment is a workspace-level rule. It lives here, not inside the
+submodules, because the workspace is the only place that legitimately
+knows about both repos at once. Each submodule keeps its own unilateral
+boundary rule (framework must stay general; product concerns push back
+upstream) and those stand alone.
+
+## Long-running work — progress files
+
+For work that spans more than one session:
+
+- If the work lives entirely inside one submodule, use that submodule's
+  convention: `repos/gofra/docs/project/agent-workflow.md` or
+  `repos/gospa/docs/project/agent-workflow.md`.
+- If the work genuinely crosses both submodules — coordinated changes
+  that land in lockstep, migrations with a gofra-side and a gospa-side —
+  keep a workspace-level progress file at
+  `gospa-workspace/docs/progress/<kebab-slug>.md`. Mirror the required
+  sections from the submodule convention (objective, context consulted,
+  decisions taken, next steps, blockers, pending validations, current
+  state with date).
+
+Per-submodule progress files and the workspace progress file may
+reference each other when work is coordinated, but each remains a
+self-contained entry point.
+
 ## Working on both repos at once
 
 The typical flow:
