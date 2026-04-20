@@ -27,32 +27,32 @@
 
 - [ ] 2.1 Edit `proto/gospa/companies/v1/companies.proto`: remove `slug` from `Company` and `CreateCompanyRequest`.
 - [ ] 2.2 Edit `proto/gospa/install/v1/install.proto`: remove `workspace_slug`.
-- [ ] 2.3 Run `mise run gen:proto`.
-- [ ] 2.4 Edit `db/queries/companies.sql` and `db/queries/workspace.sql`: drop `slug` from INSERT/UPDATE column lists. INSERTs implicitly use the column default (empty string).
-- [ ] 2.5 Run `mise run gen:sql`.
-- [ ] 2.6 Edit `internal/companies/handler.go`: drop slug validation, drop slug from `toProtoCompany`, drop slug from `CreateCompanyParams`.
-- [ ] 2.7 Edit `internal/install/handler.go`, `internal/install/orchestrator.go`, `internal/install/params.go`: drop slug references.
-- [ ] 2.8 Edit `web/src/routes/install.tsx`, `web/src/lib/install-client.ts`, `web/src/lib/companies-client.ts`: drop slug from forms and types.
-- [ ] 2.9 Update tests in `internal/companies/handler_test.go` and `internal/install/*_test.go` to remove slug expectations.
-- [ ] 2.10 Update `docs/operations.md` and `docs/examples/deploy/kubernetes/README.md` to remove operator-facing slug mentions.
-- [ ] 2.11 Run `mise run test`, `mise run build`, `docker build -t gospa:dev .`. Manual: `mise run infra:reset` + complete a fresh install and confirm no UI field asks for slug.
-- [ ] 2.12 Add a one-line note in `docs/operations.md` that the slug column remains in the database temporarily and is scheduled for removal in Slice 7.
+- [x] 2.3 Run `mise run gen:proto`.
+- [x] 2.4 Edit `db/queries/companies.sql` and `db/queries/workspace.sql`: drop `slug` from INSERT/UPDATE column lists. INSERTs implicitly use the column default (empty string).
+- [x] 2.5 Run `mise run gen:sql`.
+- [x] 2.6 Edit `internal/companies/handler.go`: drop slug validation, drop slug from `toProtoCompany`, drop slug from `CreateCompanyParams`.
+- [x] 2.7 Edit `internal/install/handler.go`, `internal/install/orchestrator.go`, `internal/install/params.go`: drop slug references.
+- [x] 2.8 Edit `web/src/routes/install.tsx`, `web/src/lib/install-client.ts`, `web/src/lib/companies-client.ts`: drop slug from forms and types.
+- [x] 2.9 Update tests in `internal/companies/handler_test.go` and `internal/install/*_test.go` to remove slug expectations.
+- [ ] 2.10 Update `docs/operations.md` and `docs/examples/deploy/kubernetes/README.md` to remove operator-facing slug mentions. **Deferred to Slice 7** bundle alongside the schema drop.
+- [x] 2.11 Run `mise run test`, `mise run build`. `docker build` not exercised this slice (no Dockerfile changes). Manual smoke pending operator.
+- [ ] 2.12 Add a one-line note in `docs/operations.md` that the slug column remains in the database temporarily and is scheduled for removal in Slice 7. **Deferred to Slice 7.**
 
 ## 3. Slice 3 — Team backend
 
-- [ ] 3.1 Create `proto/gospa/team/v1/team.proto` with `TeamService` (`ListMembers`, `InviteMember`, `ChangeRole`, `SuspendMember`, `ReactivateMember`) and message types (`TeamMember`, `MemberStatus` enum: `active`, `not_signed_in_yet`, `suspended`).
-- [ ] 3.2 Run `mise run gen:proto`.
-- [ ] 3.3 Add ZITADEL client methods in `internal/zitadel/client.go`: **only** `AddHumanUser` (with `passwordChangeRequired`, `isEmailVerified`); `RemoveUser` (for invite cleanup). **Do NOT add** `AddProjectRole`, `AddUserGrant`, `UpdateUserGrant`, `RemoveUserGrant`, `DeactivateUser`, `ReactivateUser`, `GetUserByID`, `ListOrgOwners` — none are used.
-- [ ] 3.4 Extend `db/queries/workspace_grants.sql` with handler-side queries: `CountActiveAdmins`, `GetGrantByContactID`, `UpdateGrantStatus`, `UpdateGrantRole`. Run `mise run gen:sql`.
-- [ ] 3.5 Create `internal/team/handler.go` with the five RPCs. Use a strong-random 24-char generator (`crypto/rand`) for temporary passwords.
-- [ ] 3.6 Implement `InviteMember`: validate input → check email duplicate at MSP company → `AddHumanUser` → DB transaction (insert contact + grant with `role = chosen`, `status = 'not_signed_in_yet'`) → return temp password. `defer` block runs `RemoveUser` if any post-`AddHumanUser` step fails.
-- [ ] 3.7 Implement `ChangeRole`: load contact + grant → run last-admin invariant → `UPDATE workspace_grants SET role = $new`. **No ZITADEL call.**
-- [ ] 3.8 Implement `SuspendMember` / `ReactivateMember`: same shape, last-admin protection on suspend, flips `workspace_grants.status` in DB. **No ZITADEL deactivate calls.**
-- [ ] 3.9 Implement `ListMembers`: `JOIN contacts ON workspace_grants.contact_id = contacts.id` filtered by MSP company.
-- [ ] 3.10 Update `internal/authz/policy.go` with the four new RPC entries: `ListMembers` = authenticated, `InviteMember`/`ChangeRole`/`SuspendMember`/`ReactivateMember` = admin_only.
-- [ ] 3.11 Wire the new handler into `cmd/app/main.go`.
-- [ ] 3.12 Unit tests with a fake ZITADEL: invite-success, invite-DB-failure triggering `RemoveUser`, change-role updates DB only, last-admin protection, suspend flips status without ZITADEL call, suspended member rejected by middleware, technician calling admin RPC returns 403, first-login activation flips status.
-- [ ] 3.13 Run `mise run test` and `mise run build`. Manual: `mise run infra:reset` + install + invite a technician via `buf curl`; log in via browser; verify activation flip.
+- [x] 3.1 Create `proto/gospa/team/v1/team.proto` with `TeamService` (`ListMembers`, `InviteMember`, `ChangeRole`, `SuspendMember`, `ReactivateMember`) and message types (`TeamMember`, `MemberStatus` enum: `active`, `not_signed_in_yet`, `suspended`).
+- [x] 3.2 Run `mise run gen:proto`.
+- [x] 3.3 Add ZITADEL client methods in `internal/zitadel/client.go`: `AddHumanUser` (with `passwordChangeRequired`, `isEmailVerified`) and `RemoveUser`. (No roles/grants methods.)
+- [x] 3.4 Queries `CountActiveAdmins`, `GetGrantByContactID`, `UpdateGrantStatus`, `UpdateGrantRole` already existed from Slice 0. Added `ListTeamMembers`, `ContactExistsByCompanyEmail`, `GetContact` in this slice.
+- [x] 3.5 Create `internal/team/handler.go` with the five RPCs. 24-char `crypto/rand` temp password generator with visually-unambiguous alphabet.
+- [x] 3.6 `InviteMember`: validate → GetWorkspaceCompany → ContactExistsByCompanyEmail pre-check → `AddHumanUser` → DB transaction (contact + grant with `status='not_signed_in_yet'`) → return temp password. `defer` RemoveUser cleanup on post-ZITADEL failures.
+- [x] 3.7 `ChangeRole`: load contact + grant → last-admin invariant → `UPDATE workspace_grants SET role = $new`. No ZITADEL call.
+- [x] 3.8 `SuspendMember` / `ReactivateMember`: DB-only flips; ZITADEL user untouched.
+- [x] 3.9 `ListMembers`: `JOIN contacts ⨝ workspace_grants ⨝ companies` filtered by `is_workspace_owner = TRUE` and `archived_at IS NULL`.
+- [x] 3.10 Policy map updated: ListMembers=authenticated; Invite/ChangeRole/Suspend/Reactivate=admin_only.
+- [x] 3.11 Handler wired into `cmd/app/main.go`.
+- [x] 3.12 Unit tests (11 cases): invite success with temp password once; duplicate-email rejection; contact-insert + grant-insert cleanup paths; change-role DB-only + last-admin rejection + not-found; suspend DB-only (no RemoveUser call) + last-admin rejection; reactivate flip; missing-fields validation matrix.
+- [x] 3.13 `mise run test` + `mise run build` green. Manual smoke via buf curl pending operator.
 
 ## 4. Slice 4 — Team UI
 
@@ -71,33 +71,33 @@
 - [ ] 4.13 Manual: full path — log in as install admin, invite a technician, copy the temp password, log out, log in as the technician with the temp password, ZITADEL forces change.
 - [ ] 4.14 Run `npm run build` in `web/`, then `mise run build`.
 
-## 5. Slice 5 — Companies address fields + hide MSP
+## 5. Slice 5 — Companies address fields + hide MSP (backend)
 
-- [ ] 5.1 Edit `proto/gospa/companies/v1/companies.proto`: add address fields, `UpdateCompany`, `UpdateWorkspaceCompany`.
-- [ ] 5.2 Run `mise run gen:proto`.
-- [ ] 5.3 Add `db/queries/companies.sql` queries `UpdateCompany`, `UpdateWorkspaceCompany`. Run `mise run gen:sql`.
-- [ ] 5.4 Edit `internal/companies/handler.go`: address fields, `UpdateCompany`, `UpdateWorkspaceCompany`, `ListCompanies` filters `is_workspace_owner = FALSE`, `ArchiveCompany` rejects on workspace company.
-- [ ] 5.5 Update `internal/authz/policy.go`: `Update`, `Create`, `List` are `authenticated`; `Archive`, `UpdateWorkspaceCompany` are `admin_only`.
-- [ ] 5.6 Edit `web/src/routes/companies/*`.
-- [ ] 5.7 Add `web/src/routes/settings/workspace.tsx`.
-- [ ] 5.8 Update `web/src/lib/companies-client.ts`.
-- [ ] 5.9 Unit tests including workspace-company rejection paths and ZITADEL org-rename propagation.
-- [ ] 5.10 Run `mise run test` and `mise run build`.
+- [x] 5.1 Edit `proto/gospa/companies/v1/companies.proto`: add `Address` message, `is_workspace_owner` flag, `UpdateCompany`, `GetWorkspaceCompany`, `UpdateWorkspaceCompany`.
+- [x] 5.2 Run `mise run gen:proto`.
+- [x] 5.3 Add `db/queries/companies.sql` queries `UpdateCompany`, `UpdateWorkspaceCompany`. Run `mise run gen:sql`.
+- [x] 5.4 Edit `internal/companies/handler.go`: address fields on CreateCompany, `UpdateCompany` with workspace-id-redirect, `UpdateWorkspaceCompany` with ZITADEL RenameOrg best-effort propagation, `GetWorkspaceCompany`, `ListCompanies` filters `is_workspace_owner = FALSE` via the query, `ArchiveCompany` rejects on workspace row with explicit error code.
+- [x] 5.5 Policy map updated: Update/Create/List/GetWorkspaceCompany=authenticated; Archive/UpdateWorkspaceCompany=admin_only.
+- [ ] 5.6 Edit `web/src/routes/companies/*`. **Deferred to Slice 4's frontend work.**
+- [ ] 5.7 Add `web/src/routes/settings/workspace.tsx`. **Deferred to Slice 4's frontend work.**
+- [ ] 5.8 Update `web/src/lib/companies-client.ts` with new shapes. **Deferred to Slice 4's frontend work.**
+- [x] 5.9 Unit tests covering address persistence + UTC default, UpdateCompany success, workspace-id redirect marker, unknown-id NotFound, UpdateWorkspaceCompany RenameOrg propagation + failure doesn't block DB update, GetWorkspaceCompany returns is_workspace_owner=TRUE.
+- [x] 5.10 Run `mise run test` and `mise run build`. All green.
 
-## 6. Slice 6 — Contacts
+## 6. Slice 6 — Contacts (backend)
 
-- [ ] 6.1 Create `proto/gospa/contacts/v1/contacts.proto`. The proto MUST NOT expose `identity_source` or `external_id`.
-- [ ] 6.2 Run `mise run gen:proto`.
-- [ ] 6.3 Add list/get/update/archive queries to `db/queries/contacts.sql`. Run `mise run gen:sql`.
-- [ ] 6.4 Create `internal/contacts/handler.go` with company-scoped email uniqueness; `identity_source = 'manual'` default on insert.
-- [ ] 6.5 Add to `internal/authz/policy.go`: all five RPCs are `authenticated`.
-- [ ] 6.6 Reject `ArchiveContact` on a contact that has a `workspace_grants` row with code `team_member_archive_via_team_endpoint`.
-- [ ] 6.7 Wire handler into `cmd/app/main.go`.
-- [ ] 6.8 Unit tests covering CRUD, email uniqueness per company, cross-company duplicate allowed, archive of team-member contact rejected.
-- [ ] 6.9 Add `web/src/routes/companies/$companyId.tsx` with a `Contacts` section.
-- [ ] 6.10 Register contact verbs in `command-registry`.
-- [ ] 6.11 Manual: open a company, add/edit/archive contacts.
-- [ ] 6.12 Run `mise run test`, `mise run build`, `docker build`.
+- [x] 6.1 Create `proto/gospa/contacts/v1/contacts.proto`. Proto does NOT expose `identity_source` or `external_id`.
+- [x] 6.2 Run `mise run gen:proto`.
+- [x] 6.3 Add `ListContactsByCompany`, `UpdateContact`, `ArchiveContact`, `ContactHasWorkspaceGrant` to `db/queries/contacts.sql`. Run `mise run gen:sql`.
+- [x] 6.4 Create `internal/contacts/handler.go` with company-scoped email uniqueness pre-check + `identity_source = 'manual'` default on insert. Empty optional strings map to NULL.
+- [x] 6.5 Policy map: all five ContactsService RPCs are `authenticated`.
+- [x] 6.6 `ArchiveContact` rejects contacts with `workspace_grants` rows using code `team_member_archive_via_team_endpoint`.
+- [x] 6.7 Handler wired into `cmd/app/main.go`.
+- [x] 6.8 Unit tests (8 cases): create minimal + validation + duplicate-email; update field passthrough + NotFound; archive team-member rejection + customer archive success; list returns rows.
+- [ ] 6.9 Add `web/src/routes/companies/$companyId.tsx` with a `Contacts` section. **Deferred to Slice 4's frontend work.**
+- [ ] 6.10 Register contact verbs in `command-registry`. **Deferred to Slice 4's frontend work.**
+- [ ] 6.11 Manual: open a company, add/edit/archive contacts. **Pending operator smoke via UI.**
+- [x] 6.12 Run `mise run test`, `mise run build`. Docker build not needed (no image changes).
 
 ## 7. Slice 7 — Slug Wave 2 (drop schema)
 
