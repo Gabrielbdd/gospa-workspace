@@ -18,6 +18,35 @@ This is workspace-level because the fix crosses both submodules:
 - `repos/gofra` owns starter/runtime/tooling contracts
 - `repos/gospa` owns the product onboarding flow and ZITADEL-backed install/login behavior
 
+## Retro note (2026-04-19, post `team-contacts-unified` Slice 0)
+
+The `team-contacts-unified` change reviewed this plan's outputs and
+**removed `RepairAuthContract`** (S5/S7) along with the proposed
+`teamrepair` package, the workspace `RepairWorkspaceAuthContract` query,
+`zitadelcontract.DeriveRepair`, and the mid-install crash-recovery block
+in `cmd/app/main.go`.
+
+Reasoning: pre-v1, there are no production users to protect from schema
+drift, and the dev workflow is destroy-and-recreate constantly. The
+read-repair pattern was over-engineering — it carries permanent
+maintenance cost (test, evolve, deprecate) for benefit that doesn't yet
+exist. The pattern is now banned by an explicit hard rule in
+`repos/gospa/AGENTS.md` ("No repair before v1"). Recovery path pre-v1
+is `mise run infra:reset` + reinstall.
+
+The "pause for real usage" recommendation that this plan made post-S15
+also got consciously overridden by `team-contacts-unified` because (a)
+the pause was scoped to re-prioritising S11–S17 (operational/DX
+hardening) based on observed pain, not to blocking product features,
+and (b) there is no realistic way to generate "real usage" of team
+management without first building team management. The pause for
+S11–S17 still stands.
+
+S1–S10 + gate fail-closed + S15 outcomes themselves are unchanged — the
+install → login → authenticated RPC → PAT rotation → mid-install
+rollback path is still closed. Only the read-repair *startup hook* and
+its supporting code went away.
+
 ## Current State
 
 - Date: 2026-04-19
