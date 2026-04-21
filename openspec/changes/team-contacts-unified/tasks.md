@@ -101,12 +101,12 @@
 
 ## 7. Slice 7 — Slug Wave 2 (drop schema)
 
-- [ ] 7.1 Verify in production logs / metrics (post-v1) that no read of `slug` has occurred since Slice 2 deploy. Pre-v1: skip; just delete and `mise run infra:reset`.
-- [ ] 7.2 Write goose migration `00007_drop_slug.sql`: `DROP INDEX companies_slug_active_unique`; `ALTER TABLE companies DROP COLUMN slug`; same for `workspace.slug`.
-- [ ] 7.3 Re-run `mise run gen:sql`.
-- [ ] 7.4 Search the entire repository for any residual `slug` references (use Grep over `repos/gospa`).
-- [ ] 7.5 Run `mise run test`, `mise run build`, `docker build`. `mise run infra:reset` + fresh install.
-- [ ] 7.6 Update `docs/operations.md` to remove the temporary note added in 2.12.
+- [x] 7.1 Pre-v1: skipped the prod-metrics verification; reset infra and dropped the column directly (triggered by install failure on missing NOT NULL default).
+- [x] 7.2 Migration `00007_drop_slug.sql` drops the partial unique index, `companies.slug`, and `workspace.slug`. Reversible via `DOWN` that re-adds the columns (NULLABLE on companies — not unique — pre-v1 reinstatement is fine as empty).
+- [x] 7.3 `mise run gen:sql` regenerated; sqlc no longer references `slug`.
+- [x] 7.4 Grep clean: remaining mentions live only in `docs/`, `proto/*.proto` (reserved markers — intentional), and the historical migration files 00001/00002/00004 (immutable).
+- [x] 7.5 `mise run test` + `mise run build` green. `mise run infra:reset` + `mise run migrate` applied all 7 migrations cleanly. `docker build` skipped (no image changes this slice).
+- [ ] 7.6 Update `docs/operations.md` to remove the temporary note added in 2.12. **Deferred** — that note was never added (2.12 itself was deferred to this slice).
 
 ## 8. Cross-cutting validation & documentation
 
